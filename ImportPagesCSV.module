@@ -114,6 +114,7 @@ class ImportPagesCSV extends Process implements Module {
 
 		$this->template = $this->templates->get($this->session->csvTemplate); 
 		$this->parent = $this->pages->get($this->session->csvParent); 
+		$this->imported_pages = [];
 		$this->csvFilename = $this->session->csvFilename; 
 
 		if(!$this->template || !$this->parent->id || !$this->csvFilename) {
@@ -122,7 +123,7 @@ class ImportPagesCSV extends Process implements Module {
 		}
 
 		$this->message("Using template: {$this->template}"); 
-		$this->message("Using parent: {$this->parent->path}"); 
+		//$this->message("Using parent: {$this->parent->path}"); 
 
 		$form = $this->buildForm2();	
 
@@ -158,6 +159,14 @@ class ImportPagesCSV extends Process implements Module {
 		$f->required = true; 
 		$f->description = "The pages you import will be given this parent.";
 		if($this->session->csvParent) $f->attr('value', $this->session->csvParent); 
+		$form->add($f); 
+
+		$f = $this->modules->get("InputfieldCheckbox"); 
+		$f->name = 'parent_override';
+		$f->label = 'Override Parent Page with value in first column';
+		//$f->required = true; 
+		$f->description = "Use path in first column to define parent of imported page.";
+		if($this->session->csvParentOverride) $f->attr('value', $this->session->csvParentOverride); 
 		$form->add($f); 
 
 		$f = $this->modules->get("InputfieldFile"); 
@@ -247,6 +256,7 @@ class ImportPagesCSV extends Process implements Module {
 
 		$this->session->csvTemplate = (int) $form->get('template')->value;
 		$this->session->csvParent = (int) $form->get('parent_id')->value; 
+		$this->session->csvParentOverride = $form->get('parent_override')->value; 
 		$this->session->csvDelimeter = $form->get('csv_delimeter')->value == 2 ? "\t" : ",";
 		$this->session->csvEnclosure = substr($form->get('csv_enclosure')->value, 0, 1); 
 		$this->session->csvDuplicate = (int) $form->get('csv_duplicate')->value;
@@ -369,9 +379,13 @@ class ImportPagesCSV extends Process implements Module {
 	 *
 	 */
 	protected function processForm2Markup($numImported) {
-		return 	"<h2>Imported $numImported pages</h2>" . 
-			"<p><a href='{$this->config->urls->admin}page/list/?open={$this->parent->id}'>See the imported pages</a></p>" . 
-			"<p><a href='../'>Import more pages</a></p>";
+        $ips = "";
+        if(count($this->imported_pages) == 0)
+			$ips +="<p><a href='{$this->config->urls->admin}page/list/?open={$this->parent->id}'>See the imported pages</a></p>";
+        foreach($this->imported_pages as $p)
+            $ips +="<p><a href='{$p}'>{$p}</a></p>";
+
+		return 	"<h2>Imported $numImported pages</h2>" . $ips . "<p><a href='../'>Import more pages</a></p>";
 	}
 
 	/**
@@ -394,6 +408,10 @@ class ImportPagesCSV extends Process implements Module {
 			if(!$name) continue; 
 			$this->importPageValue($page, $name, $value); 
 			$fieldNames[] = $name; 
+            if($this->session->csvParentOverride){
+                $page->parent = wire("pages")->get("{$data[0]}")->id;
+                $this->imported_pages[] = $data[0] + $page->name;
+            }
 		}	
 
 		if(!$page->name) {
@@ -459,7 +477,7 @@ class ImportPagesCSV extends Process implements Module {
 	 */
 	protected function modifyPage(Page $page, array $fieldNames) {
 
-		$p = $this->parent->child("name={$page->name}, include=all"); 
+        $p = $this->session->csvParentOverride ? $page->parent->child("name={$page->name}, include=all") : $this->parent->child("name={$page->name}, include=all");
 		$id = $p->id; 
 
 		if(!$id) {
